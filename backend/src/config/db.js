@@ -1,9 +1,16 @@
 const { Sequelize } = require('sequelize');
 require('dotenv').config();
 
-const isSSL = process.env.DB_SSL === 'true';
+const databaseUrl = process.env.DATABASE_URL;
 
-const sequelize = new Sequelize(process.env.DATABASE_URL, {
+if (!databaseUrl) {
+  console.error('CRITICAL ERROR: DATABASE_URL is not defined in environment variables.');
+  process.exit(1);
+}
+
+const isSSL = process.env.DB_SSL === 'true' || process.env.NODE_ENV === 'production';
+
+const sequelize = new Sequelize(databaseUrl, {
   dialect: 'postgres',
   logging: false,
   dialectOptions: isSSL
