@@ -2,18 +2,35 @@ const { Op } = require('sequelize');
 const { sequelize, Attendance, Employee } = require('../models');
 const { paginate, paginatedResponse } = require('../utils/pagination');
 
-function getIST() {
+/**
+ * Get current time in India Standard Time (IST)
+ * Returns an object with date string, time string, and hours/minutes
+ */
+function getISTData() {
   const now = new Date();
-  // Create IST date object
-  return new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-}
 
-function todayStr() {
-  const ist = getIST();
-  const y = ist.getFullYear();
-  const m = String(ist.getMonth() + 1).padStart(2, '0');
-  const d = String(ist.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
+  // Formatters for IST
+  const dateFormatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Kolkata',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+
+  const timeFormatter = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Kolkata',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  });
+
+  const dateStr = dateFormatter.format(now); // YYYY-MM-DD
+  const timeStr = timeFormatter.format(now); // HH:MM:SS
+
+  const [hour, minute] = timeStr.split(':').map(Number);
+
+  return { dateStr, timeStr, hour, minute };
 }
 
 // POST /api/attendance/check-in
@@ -21,35 +38,46 @@ async function checkIn(req, res) {
   const employeeId = req.user.employeeId;
   if (!employeeId) return res.status(400).json({ success: false, message: 'No employee profile linked to this account' });
 
-  const date = todayStr();
-  const ist = getIST();
+  const { dateStr, timeStr, hour, minute } = getISTData();
 
-  // Format HH:MM:SS in IST
-  const checkInTime = ist.toTimeString().slice(0, 8);
-
-  // Shift Logic (IST)
-  // Default start: 21:00:00 (9:00 PM)
-  const hour = ist.getHours();
-  const minute = ist.getMinutes();
+  // Shift Logic: 9:00 PM (21:00)
+  // If checking in after 9:05 PM (21:05), mark as late.
+  // Note: If checking in after midnight (e.g., 00:10 AM), it's also late for the 9 PM shift.
+  // We'll assume a "shift window". If it's between 9 PM and 6 AM, it's part of the night shift.
 
   let status = 'present';
-  if (hour > 21 || (hour === 21 && minute > 5)) {
+
+  // Logic for 9:00 PM start:
+  // 1. If hour is 21 (9 PM) and minute > 5 -> Late
+  // 2. If hour is > 21 (10 PM, 11 PM) -> Late
+  // 3. If hour is < 6 (12 AM to 6 AM) -> Late (Checking in very late for the night shift)
+
+  if (hour === 21 && minute > 5) {
     status = 'late';
-  } else if (hour === 21 && minute > 0) {
-    // 21:01 to 21:05 is grace period -> still marked 'present'
-    status = 'present';
-  } else if (hour < 21) {
-    // Early check-in is also present
-    status = 'present';
+  } else if (hour > 21 || hour < 6) {
+    status = 'late';
+  }
+
+  // Determine the "Attendance Date"
+  // If it's between 00:00 and 06:00, we associate it with the previous day's shift
+  let attendanceDate = dateStr;
+  if (hour < 6) {
+    const d = new Date(new Date(dateStr).getTime() - 24 * 60 * 60 * 1000);
+    attendanceDate = d.toISOString().slice(0, 10);
   }
 
   const [record, created] = await Attendance.findOrCreate({
-    where: { employeeId, date },
-    defaults: { employeeId, date, status, checkIn: checkInTime },
+    where: { employeeId, date: attendanceDate },
+    defaults: {
+      employeeId,
+      date: attendanceDate,
+      status,
+      checkIn: timeStr
+    },
   });
 
   if (!created) {
-    return res.status(400).json({ success: false, message: 'Already checked in for today' });
+    return res.status(400).json({ success: false, message: 'Already checked in for this session' });
   }
 
   res.status(201).json({ success: true, data: record });
@@ -59,36 +87,35 @@ async function checkIn(req, res) {
 async function checkOut(req, res) {
   const employeeId = req.user.employeeId;
 
-  // Find the most recent record for this employee that doesn't have a check-out yet
   const record = await Attendance.findOne({
     where: {
       employeeId,
       checkOut: null
     },
-    order: [['date', 'DESC']]
+    order: [['date', 'DESC'], ['createdAt', 'DESC']]
   });
 
   if (!record) return res.status(400).json({ success: false, message: 'No active check-in found' });
 
-  const ist = getIST();
-  const checkOutTimeStr = ist.toTimeString().slice(0, 8);
+  const { timeStr } = getISTData();
 
-  // Calculate hours correctly by combining record date with check-in time
-  // Since both are in IST relative strings, we treat them as such for calculation
-  const checkInDateTime = new Date(`${record.date}T${record.checkIn}`);
-  const checkOutDateTime = new Date(`${record.date}T${checkOutTimeStr}`);
+  // Calculate hours
+  const checkInTime = new Date(`${record.date}T${record.checkIn}`);
 
-  // If checkout is numerically before check-in, it's likely next day (for night shifts)
-  let diff = checkOutDateTime - checkInDateTime;
-  if (diff < 0) {
-    // Add 24 hours
-    diff += 24 * 60 * 60 * 1000;
+  // For checkout, we need to handle the case where it's the next day
+  const { dateStr } = getISTData();
+  let checkOutDateTime = new Date(`${dateStr}T${timeStr}`);
+
+  // If checkOutDateTime is before checkInTime, it means we crossed midnight
+  if (checkOutDateTime < checkInTime) {
+      // This is handled correctly by the fact that dateStr will be the next day
   }
 
-  const hours = Math.max(0, diff / 1000 / 3600);
+  const diffMs = checkOutDateTime - checkInTime;
+  const hours = Math.max(0, diffMs / 1000 / 3600);
 
   await record.update({
-    checkOut: checkOutTimeStr,
+    checkOut: timeStr,
     hoursWorked: hours.toFixed(2),
     overtimeHours: Math.max(0, hours - 8).toFixed(2),
   });
@@ -96,7 +123,6 @@ async function checkOut(req, res) {
   res.json({ success: true, data: record });
 }
 
-// GET /api/attendance/me?month=&year=
 async function myAttendance(req, res) {
   const employeeId = req.user.employeeId;
   const { month, year } = req.query;
@@ -108,11 +134,10 @@ async function myAttendance(req, res) {
     where.date = { [Op.between]: [start, end] };
   }
 
-  const records = await Attendance.findAll({ where, order: [['date', 'DESC']] });
+  const records = await Attendance.findAll({ where, order: [['date', 'DESC'], ['createdAt', 'DESC']] });
   res.json({ success: true, data: records });
 }
 
-// GET /api/attendance/employee/:employeeId
 async function employeeAttendance(req, res) {
   const { page, limit, offset } = paginate(req, 31);
   const { month, year } = req.query;
@@ -128,25 +153,24 @@ async function employeeAttendance(req, res) {
   paginatedResponse(res, result, page, limit);
 }
 
-// GET /api/attendance/team/:managerId  -> attendance for direct reports, for today
 async function teamAttendanceToday(req, res) {
+  const { dateStr } = getISTData();
   const reports = await Employee.findAll({ where: { managerId: req.params.managerId }, attributes: ['id'] });
   const ids = reports.map((r) => r.id);
 
   const records = await Attendance.findAll({
-    where: { employeeId: { [Op.in]: ids }, date: todayStr() },
+    where: { employeeId: { [Op.in]: ids }, date: dateStr },
     include: [{ model: Employee, as: 'employee', attributes: ['firstName', 'lastName', 'employeeCode'] }],
   });
 
   res.json({ success: true, data: records });
 }
 
-// GET /api/attendance/stats/today
 async function statsToday(req, res) {
-  const date = todayStr();
+  const { dateStr } = getISTData();
   const counts = await Attendance.findAll({
     attributes: ['status', [sequelize.fn('COUNT', sequelize.col('id')), 'count']],
-    where: { date },
+    where: { date: dateStr },
     group: ['status'],
     raw: true,
   });
@@ -155,14 +179,13 @@ async function statsToday(req, res) {
   res.json({
     success: true,
     data: {
-      date,
+      date: dateStr,
       totalEmployees,
       breakdown: counts.map((c) => ({ status: c.status, count: Number(c.count) })),
     },
   });
 }
 
-// GET /api/attendance/stats/trends?months=6
 async function attendanceTrends(req, res) {
   const months = Number(req.query.months) || 6;
   const since = new Date();
