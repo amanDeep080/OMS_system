@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
 import {
   Box, Paper, Typography, Stack, Button, Table, TableHead, TableRow, TableCell,
-  TableBody, Chip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem
+  TableBody, Chip, Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem, Autocomplete, Avatar
 } from '@mui/material';
 import LaptopIcon from '@mui/icons-material/Laptop';
 import AddIcon from '@mui/icons-material/Add';
 import PageHeader from '../components/common/PageHeader';
 import { assetApi } from '../api/services/assetApi';
 import { employeeApi } from '../api/services/employeeApi';
-import { titleCase } from '../utils/formatters';
+import { titleCase, initials } from '../utils/formatters';
 
 export default function Assets() {
   const [assets, setAssets] = useState([]);
@@ -20,7 +20,7 @@ export default function Assets() {
 
   useEffect(() => {
     fetch();
-    employeeApi.list({ limit: 1000 }).then(({ data }) => setEmployees(data.data));
+    employeeApi.list({ limit: 5000 }).then(({ data }) => setEmployees(data.data));
   }, []);
 
   const handleSubmit = async (e) => {
@@ -60,12 +60,26 @@ export default function Assets() {
                 <TableCell>{a.user ? `${a.user.firstName} ${a.user.lastName}` : '—'}</TableCell>
                 <TableCell align="right">
                   {a.status === 'available' && (
-                    <TextField
-                      select size="small" label="Assign" sx={{ width: 150 }}
-                      onChange={(e) => handleAssign(a.id, e.target.value)}
-                    >
-                      {employees.map(e => <MenuItem key={e.id} value={e.id}>{e.firstName} {e.lastName}</MenuItem>)}
-                    </TextField>
+                    <Autocomplete
+                      size="small"
+                      options={employees}
+                      getOptionLabel={(option) => `${option.firstName} ${option.lastName} (${option.employeeCode})`}
+                      onChange={(_, newValue) => {
+                        if (newValue) handleAssign(a.id, newValue.id);
+                      }}
+                      renderInput={(params) => <TextField {...params} label="Assign" sx={{ width: 200 }} />}
+                      renderOption={(props, option) => {
+                        const { key, ...otherProps } = props;
+                        return (
+                          <Box component="li" key={option.id} {...otherProps} sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
+                            <Avatar src={option.profilePicture} sx={{ width: 24, height: 24, fontSize: '0.7rem' }}>
+                              {initials(option.firstName, option.lastName)}
+                            </Avatar>
+                            <Typography variant="body2">{option.firstName} {option.lastName} ({option.employeeCode})</Typography>
+                          </Box>
+                        );
+                      }}
+                    />
                   )}
                 </TableCell>
               </TableRow>

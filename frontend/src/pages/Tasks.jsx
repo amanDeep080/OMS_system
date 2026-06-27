@@ -3,7 +3,7 @@ import {
   Box, Paper, Typography, Stack, Button, Grid, Chip, IconButton,
   List, ListItem, ListItemText, ListItemSecondaryAction, Checkbox,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField, MenuItem,
-  Avatar, CircularProgress, Tabs, Tab, Divider
+  Avatar, CircularProgress, Tabs, Tab, Divider, Autocomplete
 } from '@mui/material';
 import { DeleteOutlined as DeleteOutlineIcon, Add as AddIcon, Assignment as AssignmentIcon } from '@mui/icons-material';
 import PageHeader from '../components/common/PageHeader';
@@ -35,7 +35,7 @@ export default function Tasks() {
 
   useEffect(() => {
     fetchTasks();
-    employeeApi.list({ limit: 1000 }).then(({ data }) => setEmployees(data.data));
+    employeeApi.list({ limit: 5000 }).then(({ data }) => setEmployees(data.data));
   }, []);
 
   const handleToggle = async (task) => {
@@ -221,20 +221,24 @@ export default function Tasks() {
                   />
                 </Grid>
               </Grid>
-              <TextField
-                select fullWidth label="Assign To" required
-                value={formData.assignedToId}
-                onChange={(e) => setFormData({...formData, assignedToId: e.target.value})}
-              >
-                {employees.map(e => (
-                  <MenuItem key={e.id} value={e.id}>
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <Avatar src={e.profilePicture} sx={{ width: 24, height: 24, fontSize: '0.7rem' }}>{initials(e.firstName, e.lastName)}</Avatar>
-                      <Typography variant="body2">{e.firstName} {e.lastName}</Typography>
-                    </Stack>
-                  </MenuItem>
-                ))}
-              </TextField>
+              <Autocomplete
+                options={employees}
+                getOptionLabel={(option) => `${option.firstName} ${option.lastName} (${option.employeeCode})`}
+                value={employees.find(e => e.id === formData.assignedToId) || null}
+                onChange={(_, newValue) => setFormData({...formData, assignedToId: newValue?.id || ''})}
+                renderInput={(params) => <TextField {...params} label="Assign To" required />}
+                renderOption={(props, option) => {
+                  const { key, ...otherProps } = props;
+                  return (
+                    <Box component="li" key={option.id} {...otherProps} sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
+                      <Avatar src={option.profilePicture} sx={{ width: 24, height: 24, fontSize: '0.7rem' }}>
+                        {initials(option.firstName, option.lastName)}
+                      </Avatar>
+                      <Typography variant="body2">{option.firstName} {option.lastName} ({option.employeeCode})</Typography>
+                    </Box>
+                  );
+                }}
+              />
             </Stack>
           </DialogContent>
           <DialogActions sx={{ p: 2 }}>

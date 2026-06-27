@@ -29,7 +29,7 @@ async function listEmployees(req, res) {
     ],
     limit,
     offset,
-    order: [['employeeCode', 'ASC']],
+    order: [['createdAt', 'DESC']],
   });
 
   paginatedResponse(res, result, page, limit);
