@@ -2,8 +2,18 @@ const { Op } = require('sequelize');
 const { sequelize, Attendance, Employee } = require('../models');
 const { paginate, paginatedResponse } = require('../utils/pagination');
 
+function getIST() {
+  const now = new Date();
+  // Create IST date object
+  return new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+}
+
 function todayStr() {
-  return new Date().toISOString().slice(0, 10);
+  const ist = getIST();
+  const y = ist.getFullYear();
+  const m = String(ist.getMonth() + 1).padStart(2, '0');
+  const d = String(ist.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 // POST /api/attendance/check-in
@@ -12,19 +22,24 @@ async function checkIn(req, res) {
   if (!employeeId) return res.status(400).json({ success: false, message: 'No employee profile linked to this account' });
 
   const date = todayStr();
-  const now = new Date();
-  const checkInTime = now.toTimeString().slice(0, 8); // HH:MM:SS
+  const ist = getIST();
 
-  // Shift Logic
+  // Format HH:MM:SS in IST
+  const checkInTime = ist.toTimeString().slice(0, 8);
+
+  // Shift Logic (IST)
   // Default start: 21:00:00 (9:00 PM)
-  const hour = now.getHours();
-  const minute = now.getMinutes();
+  const hour = ist.getHours();
+  const minute = ist.getMinutes();
 
   let status = 'present';
   if (hour > 21 || (hour === 21 && minute > 5)) {
     status = 'late';
   } else if (hour === 21 && minute > 0) {
     // 21:01 to 21:05 is grace period -> still marked 'present'
+    status = 'present';
+  } else if (hour < 21) {
+    // Early check-in is also present
     status = 'present';
   }
 
@@ -55,12 +70,22 @@ async function checkOut(req, res) {
 
   if (!record) return res.status(400).json({ success: false, message: 'No active check-in found' });
 
-  const now = new Date();
-  const checkOutTimeStr = now.toTimeString().slice(0, 8);
+  const ist = getIST();
+  const checkOutTimeStr = ist.toTimeString().slice(0, 8);
 
   // Calculate hours correctly by combining record date with check-in time
+  // Since both are in IST relative strings, we treat them as such for calculation
   const checkInDateTime = new Date(`${record.date}T${record.checkIn}`);
-  const hours = Math.max(0, (now - checkInDateTime) / 1000 / 3600);
+  const checkOutDateTime = new Date(`${record.date}T${checkOutTimeStr}`);
+
+  // If checkout is numerically before check-in, it's likely next day (for night shifts)
+  let diff = checkOutDateTime - checkInDateTime;
+  if (diff < 0) {
+    // Add 24 hours
+    diff += 24 * 60 * 60 * 1000;
+  }
+
+  const hours = Math.max(0, diff / 1000 / 3600);
 
   await record.update({
     checkOut: checkOutTimeStr,
