@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   AppBar, Toolbar, IconButton, InputBase, Box, Stack, Avatar, Menu, MenuItem,
-  Typography, Badge, Tooltip, Divider, ListItemIcon,
+  Typography, Badge, Tooltip, Divider, ListItemIcon, Button, Chip,
 } from '@mui/material';
 import {
   MenuOutlined as MenuOutlinedIcon,
@@ -10,7 +10,9 @@ import {
   LightModeOutlined as LightModeOutlinedIcon,
   NotificationsOutlined as NotificationsOutlinedIcon,
   LogoutOutlined as LogoutOutlinedIcon,
-  PersonOutlineOutlined as PersonOutlineOutlinedIcon
+  PersonOutlineOutlined as PersonOutlineOutlinedIcon,
+  LoginOutlined as LoginOutlinedIcon,
+  LogoutOutlined as CheckOutIcon
 } from '@mui/icons-material';
 import { useDispatch, useSelector } from 'react-redux';
 import { useNavigate } from 'react-router-dom';
@@ -19,16 +21,53 @@ import { selectCurrentUser } from '../../features/auth/authSlice';
 import { useAuth } from '../../hooks/useAuth';
 import { initials, titleCase } from '../../utils/formatters';
 import NotificationsPanel from './NotificationsPanel';
+import { attendanceApi } from '../../api/services/attendanceApi';
+import { useSnackbar } from 'notistack';
 
 export default function Topbar() {
   const dispatch = useDispatch();
   const navigate = useNavigate();
+  const { enqueueSnackbar } = useSnackbar();
   const themeMode = useSelector(selectThemeMode);
   const user = useSelector(selectCurrentUser);
   const { logout } = useAuth();
 
   const [profileAnchor, setProfileAnchor] = useState(null);
   const [notifAnchor, setNotifAnchor] = useState(null);
+  const [todayRecord, setTodayRecord] = useState(null);
+
+  const fetchAttendance = async () => {
+    try {
+      const { data } = await attendanceApi.myAttendance();
+      const lastRecord = data.data[0];
+      // If the most recent record has no check-out, it's our active shift
+      setTodayRecord(lastRecord?.checkOut ? null : lastRecord);
+    } catch (err) {}
+  };
+
+  useEffect(() => {
+    if (user) fetchAttendance();
+  }, [user]);
+
+  const handleCheckIn = async () => {
+    try {
+      await attendanceApi.checkIn();
+      enqueueSnackbar('Checked in successfully', { variant: 'success' });
+      fetchAttendance();
+    } catch (err) {
+      enqueueSnackbar(err.response?.data?.message || 'Check-in failed', { variant: 'error' });
+    }
+  };
+
+  const handleCheckOut = async () => {
+    try {
+      await attendanceApi.checkOut();
+      enqueueSnackbar('Checked out successfully', { variant: 'success' });
+      fetchAttendance();
+    } catch (err) {
+      enqueueSnackbar(err.response?.data?.message || 'Check-out failed', { variant: 'error' });
+    }
+  };
 
   // Safely extract name info
   const firstName = user?.employee?.firstName || '';
@@ -64,6 +103,38 @@ export default function Topbar() {
         </Box>
 
         <Box sx={{ flexGrow: 1 }} />
+
+        <Stack direction="row" spacing={1} sx={{ mr: 2 }}>
+          {!todayRecord?.checkIn ? (
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<LoginOutlinedIcon />}
+              onClick={handleCheckIn}
+              sx={{ borderRadius: 2, textTransform: 'none' }}
+            >
+              Check In
+            </Button>
+          ) : !todayRecord?.checkOut ? (
+            <Button
+              variant="contained"
+              size="small"
+              color="secondary"
+              startIcon={<CheckOutIcon />}
+              onClick={handleCheckOut}
+              sx={{ borderRadius: 2, textTransform: 'none' }}
+            >
+              Check Out
+            </Button>
+          ) : (
+            <Chip
+              label="Checked Out"
+              size="small"
+              variant="outlined"
+              sx={{ borderRadius: 1.5 }}
+            />
+          )}
+        </Stack>
 
         <Tooltip title={themeMode === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}>
           <IconButton onClick={() => dispatch(toggleTheme())} size="small">

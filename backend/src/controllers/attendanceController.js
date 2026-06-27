@@ -16,15 +16,15 @@ async function checkIn(req, res) {
   const checkInTime = now.toTimeString().slice(0, 8); // HH:MM:SS
 
   // Shift Logic
-  // Default start: 09:00:00
+  // Default start: 21:00:00 (9:00 PM)
   const hour = now.getHours();
   const minute = now.getMinutes();
 
   let status = 'present';
-  if (hour > 9 || (hour === 9 && minute > 5)) {
+  if (hour > 21 || (hour === 21 && minute > 5)) {
     status = 'late';
-  } else if (hour === 9 && minute > 0) {
-    // 9:01 to 9:05 is grace period -> still marked 'present'
+  } else if (hour === 21 && minute > 0) {
+    // 21:01 to 21:05 is grace period -> still marked 'present'
     status = 'present';
   }
 
@@ -43,18 +43,27 @@ async function checkIn(req, res) {
 // POST /api/attendance/check-out
 async function checkOut(req, res) {
   const employeeId = req.user.employeeId;
-  const date = todayStr();
-  const record = await Attendance.findOne({ where: { employeeId, date } });
 
-  if (!record) return res.status(400).json({ success: false, message: 'No check-in found for today' });
+  // Find the most recent record for this employee that doesn't have a check-out yet
+  const record = await Attendance.findOne({
+    where: {
+      employeeId,
+      checkOut: null
+    },
+    order: [['date', 'DESC']]
+  });
 
-  const now = new Date().toTimeString().slice(0, 8);
-  const checkInTime = new Date(`${date}T${record.checkIn}`);
-  const checkOutTime = new Date(`${date}T${now}`);
-  const hours = Math.max(0, (checkOutTime - checkInTime) / 1000 / 3600);
+  if (!record) return res.status(400).json({ success: false, message: 'No active check-in found' });
+
+  const now = new Date();
+  const checkOutTimeStr = now.toTimeString().slice(0, 8);
+
+  // Calculate hours correctly by combining record date with check-in time
+  const checkInDateTime = new Date(`${record.date}T${record.checkIn}`);
+  const hours = Math.max(0, (now - checkInDateTime) / 1000 / 3600);
 
   await record.update({
-    checkOut: now,
+    checkOut: checkOutTimeStr,
     hoursWorked: hours.toFixed(2),
     overtimeHours: Math.max(0, hours - 8).toFixed(2),
   });
