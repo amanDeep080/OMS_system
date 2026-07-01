@@ -1,15 +1,22 @@
 import { useEffect, useState } from 'react';
 import {
-  Box, Paper, List, ListItem, ListItemIcon, ListItemText, Button, Chip,
-  IconButton, Stack, Typography, Grid, TextField, MenuItem, Dialog,
-  DialogTitle, DialogContent, DialogActions, LinearProgress, Alert, Autocomplete
+  Box, Paper, Button, Chip, IconButton, Stack, Typography, Grid, TextField,
+  MenuItem, Dialog, DialogTitle, DialogContent, DialogActions, LinearProgress,
+  Alert, Autocomplete, Card, CardContent, CardActions, Tooltip, Zoom, Fade
 } from '@mui/material';
 import {
   InsertDriveFileOutlined as InsertDriveFileOutlinedIcon,
   DeleteOutlined as DeleteOutlineIcon,
-  CloudUploadOutlined as CloudUploadOutlinedIcon
+  CloudUploadOutlined as CloudUploadOutlinedIcon,
+  PictureAsPdf as PdfIcon,
+  Description as DescriptionIcon,
+  VisibilityOutlined as ViewIcon,
+  DownloadOutlined as DownloadIcon,
+  FilterList as FilterIcon,
+  AccountCircleOutlined as AccountIcon
 } from '@mui/icons-material';
 import { useSelector } from 'react-redux';
+import { alpha } from '@mui/material/styles';
 import PageHeader from '../components/common/PageHeader';
 import { LoadingScreen, EmptyState } from '../components/common/States';
 import API from '../api/axiosClient';
@@ -27,6 +34,22 @@ const DOC_TYPES = [
   { value: 'employee_document', label: 'Employee Document' },
   { value: 'other', label: 'Other' },
 ];
+
+const getDocIcon = (type) => {
+  const sx = { fontSize: 42 };
+  switch (type) {
+    case 'offer_letter':
+    case 'appointment_letter':
+    case 'contract':
+      return <PdfIcon sx={{ ...sx, color: '#f44336' }} />;
+    case 'salary_slip':
+      return <DescriptionIcon sx={{ ...sx, color: '#4caf50' }} />;
+    case 'hr_policy':
+      return <InsertDriveFileOutlinedIcon sx={{ ...sx, color: '#2196f3' }} />;
+    default:
+      return <InsertDriveFileOutlinedIcon sx={{ ...sx, color: 'text.secondary' }} />;
+  }
+};
 
 export default function Documents() {
   const user = useSelector(selectCurrentUser);
@@ -67,11 +90,13 @@ export default function Documents() {
   }, [isHR]);
 
   useEffect(() => {
-    fetchDocs(selectedEmployeeId);
+    if (selectedEmployeeId) {
+      fetchDocs(selectedEmployeeId);
+    }
   }, [selectedEmployeeId]);
 
   const handleDelete = async (id) => {
-    if (window.confirm('Delete this document?')) {
+    if (window.confirm('Are you sure you want to permanently delete this document?')) {
       try {
         await API.delete(`/uploads/document/${id}`);
         fetchDocs(selectedEmployeeId);
@@ -84,6 +109,7 @@ export default function Documents() {
   const handleUpload = async (e) => {
     e.preventDefault();
     if (!uploadForm.file) return setUploadError('Please select a file');
+    if (!uploadForm.employeeId) return setUploadError('Please select a target employee');
 
     setUploading(true);
     setUploadError('');
@@ -110,27 +136,48 @@ export default function Documents() {
   const baseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001';
 
   return (
-    <Box>
+    <Box sx={{ pb: 6 }}>
       <PageHeader
         title="Documents"
-        subtitle="Manage employee records, contracts, and policies."
+        subtitle="Access and manage official employee records and company policies."
         actions={isHR && (
           <Button
             variant="contained"
+            color="primary"
             startIcon={<CloudUploadOutlinedIcon />}
             onClick={() => setUploadDialogOpen(true)}
+            sx={{
+              px: 3,
+              py: 1,
+              borderRadius: 2,
+              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+              '&:hover': { transform: 'translateY(-1px)' }
+            }}
           >
             Upload Document
           </Button>
         )}
       />
 
-      <Grid container spacing={2.5}>
+      <Stack spacing={4}>
         {isHR && (
-          <Grid item xs={12}>
-            <Paper sx={{ p: 2, mb: 1 }}>
-              <Stack direction="row" spacing={2} alignItems="center">
-                <Typography variant="body2" sx={{ fontWeight: 600 }}>Filter by Employee:</Typography>
+          <Fade in timeout={500}>
+            <Paper
+              sx={{
+                p: 3,
+                borderRadius: 3,
+                border: '1px solid',
+                borderColor: 'divider',
+                bgcolor: (theme) => theme.palette.mode === 'dark' ? alpha(theme.palette.background.paper, 0.6) : '#fff'
+              }}
+            >
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3} alignItems={{ sm: 'center' }}>
+                <Stack direction="row" spacing={1.5} alignItems="center" sx={{ color: 'primary.main' }}>
+                  <AccountIcon fontSize="medium" />
+                  <Typography variant="subtitle1" sx={{ fontWeight: 700, whiteSpace: 'nowrap' }}>
+                    Select Employee
+                  </Typography>
+                </Stack>
                 <Autocomplete
                   size="small"
                   options={employees}
@@ -138,98 +185,257 @@ export default function Documents() {
                   value={employees.find(e => e.id === selectedEmployeeId) || null}
                   onChange={(_, newValue) => setSelectedEmployeeId(newValue?.id || '')}
                   renderInput={(params) => (
-                    <TextField {...params} label="Search Employee" sx={{ minWidth: 300 }} />
+                    <TextField
+                      {...params}
+                      placeholder="Type name or employee code..."
+                      variant="outlined"
+                      sx={{
+                        '& .MuiOutlinedInput-root': {
+                          borderRadius: 2,
+                          bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.2)' : 'rgba(0,0,0,0.02)'
+                        }
+                      }}
+                    />
                   )}
-                  sx={{ width: 400 }}
+                  sx={{ flexGrow: 1, maxWidth: 600 }}
                 />
               </Stack>
             </Paper>
-          </Grid>
+          </Fade>
         )}
 
-        <Grid item xs={12}>
-          <Paper>
-            {loading ? (
-              <LoadingScreen label="Loading documents..." />
-            ) : docs.length === 0 ? (
-              <EmptyState
-                title="No documents found"
-                description={isHR ? "Select an employee or upload a new document." : "Your documents will appear here."}
-              />
-            ) : (
-              <List>
-                {docs.map((d) => (
-                  <ListItem key={d.id} divider>
-                    <ListItemIcon><InsertDriveFileOutlinedIcon color="primary" /></ListItemIcon>
-                    <ListItemText
-                      primary={d.title}
-                      secondary={formatDate(d.createdAt)}
-                    />
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <Chip size="small" label={titleCase(d.type)} variant="outlined" />
-                      <Button size="small" href={`${baseUrl}${d.fileUrl}`} target="_blank">View</Button>
-                      <Button size="small" component="a" href={`${baseUrl}${d.fileUrl}`} download target="_blank">Download</Button>
-                      {isHR && (
-                        <IconButton size="small" color="error" onClick={() => handleDelete(d.id)}>
-                          <DeleteOutlineIcon fontSize="small" />
-                        </IconButton>
-                      )}
-                    </Stack>
-                  </ListItem>
-                ))}
-              </List>
-            )}
-          </Paper>
-        </Grid>
-      </Grid>
+        <Box>
+          {loading ? (
+            <LoadingScreen label="Retrieving secure records..." />
+          ) : docs.length === 0 ? (
+            <EmptyState
+              title="No Documents Found"
+              description={isHR ? "Select an employee to view their files or upload a new record." : "Your digital document vault is currently empty."}
+              icon={<InsertDriveFileOutlinedIcon sx={{ fontSize: 80, opacity: 0.1, mb: 2 }} />}
+            />
+          ) : (
+            <Grid container spacing={3}>
+              {docs.map((d, index) => (
+                <Grid item xs={12} sm={6} md={4} lg={3} key={d.id}>
+                  <Zoom in timeout={400 + index * 50}>
+                    <Card
+                      sx={{
+                        height: '100%',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        borderRadius: 3,
+                        overflow: 'hidden',
+                        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                        position: 'relative',
+                        '&:hover': {
+                          transform: 'translateY(-6px)',
+                          boxShadow: (theme) => theme.palette.mode === 'dark'
+                            ? '0 12px 32px rgba(0,0,0,0.5)'
+                            : '0 12px 32px rgba(0,0,0,0.12)',
+                          borderColor: 'primary.light'
+                        }
+                      }}
+                    >
+                      <CardContent sx={{ flexGrow: 1, p: 3 }}>
+                        <Stack direction="row" justifyContent="space-between" alignItems="flex-start" mb={2.5}>
+                          <Box sx={{
+                            p: 2,
+                            borderRadius: 2.5,
+                            bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center'
+                          }}>
+                            {getDocIcon(d.type)}
+                          </Box>
+                          <Chip
+                            label={titleCase(d.type)}
+                            size="small"
+                            variant="outlined"
+                            sx={{
+                              fontWeight: 700,
+                              fontSize: '0.65rem',
+                              height: 22,
+                              borderRadius: 1.5,
+                              color: 'text.secondary',
+                              borderColor: 'divider'
+                            }}
+                          />
+                        </Stack>
+
+                        <Typography variant="h6" sx={{ fontSize: '1.05rem', mb: 1, fontWeight: 700, lineHeight: 1.4, color: 'text.primary' }}>
+                          {d.title}
+                        </Typography>
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 500 }}>
+                            {formatDate(d.createdAt)}
+                          </Typography>
+                        </Stack>
+                      </CardContent>
+
+                      <Box sx={{ p: 2, pt: 0, mt: 'auto' }}>
+                        <Stack direction="row" spacing={1} sx={{ p: 1.5, borderRadius: 2, bgcolor: (theme) => theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)' }}>
+                          <Button
+                            fullWidth
+                            size="small"
+                            startIcon={<ViewIcon sx={{ fontSize: 18 }} />}
+                            href={`${baseUrl}${d.fileUrl}`}
+                            target="_blank"
+                            sx={{ color: 'text.primary', fontWeight: 600 }}
+                          >
+                            View
+                          </Button>
+                          <Button
+                            fullWidth
+                            size="small"
+                            startIcon={<DownloadIcon sx={{ fontSize: 18 }} />}
+                            component="a"
+                            href={`${baseUrl}${d.fileUrl}`}
+                            download
+                            target="_blank"
+                            sx={{ color: 'text.primary', fontWeight: 600 }}
+                          >
+                            Get
+                          </Button>
+                          {isHR && (
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => handleDelete(d.id)}
+                              sx={{ ml: 'auto' }}
+                            >
+                              <DeleteOutlineIcon fontSize="small" />
+                            </IconButton>
+                          )}
+                        </Stack>
+                      </Box>
+                    </Card>
+                  </Zoom>
+                </Grid>
+              ))}
+            </Grid>
+          )}
+        </Box>
+      </Stack>
 
       {/* Upload Dialog */}
-      <Dialog open={uploadDialogOpen} onClose={() => !uploading && setUploadDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ fontWeight: 700 }}>Upload New Document</DialogTitle>
+      <Dialog
+        open={uploadDialogOpen}
+        onClose={() => !uploading && setUploadDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: { borderRadius: 4, backgroundImage: 'none' }
+        }}
+      >
+        <DialogTitle sx={{ p: 4, pb: 2 }}>
+          <Typography variant="h5" sx={{ fontWeight: 800 }}>Upload Document</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            Securely upload and assign documents to employee profiles.
+          </Typography>
+        </DialogTitle>
         <form onSubmit={handleUpload}>
-          <DialogContent dividers>
-            <Stack spacing={2.5}>
-              {uploadError && <Alert severity="error">{uploadError}</Alert>}
+          <DialogContent sx={{ p: 4, pt: 1 }}>
+            <Stack spacing={3.5}>
+              {uploadError && <Alert severity="error" variant="filled" sx={{ borderRadius: 2 }}>{uploadError}</Alert>}
+
               <Autocomplete
                 options={employees}
                 getOptionLabel={(option) => `${option.firstName} ${option.lastName} (${option.employeeCode})`}
                 value={employees.find(e => e.id === uploadForm.employeeId) || null}
                 onChange={(_, newValue) => setUploadForm({...uploadForm, employeeId: newValue?.id || ''})}
                 renderInput={(params) => (
-                  <TextField {...params} label="Target Employee" required />
+                  <TextField {...params} label="Employee Assignment" required placeholder="Search employee..." />
                 )}
                 fullWidth
               />
-              <TextField
-                fullWidth label="Document Title" required
-                value={uploadForm.title}
-                onChange={(e) => setUploadForm({...uploadForm, title: e.target.value})}
-              />
-              <TextField
-                select fullWidth label="Document Type" required
-                value={uploadForm.type}
-                onChange={(e) => setUploadForm({...uploadForm, type: e.target.value})}
-              >
-                {DOC_TYPES.map(t => <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>)}
-              </TextField>
-              <Button
-                variant="outlined"
+
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                <TextField
+                  fullWidth label="Document Title" required
+                  placeholder="e.g. Contract-2024"
+                  value={uploadForm.title}
+                  onChange={(e) => setUploadForm({...uploadForm, title: e.target.value})}
+                />
+                <TextField
+                  select fullWidth label="Type" required
+                  value={uploadForm.type}
+                  onChange={(e) => setUploadForm({...uploadForm, type: e.target.value})}
+                  sx={{ minWidth: 180 }}
+                >
+                  {DOC_TYPES.map(t => <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>)}
+                </TextField>
+              </Stack>
+
+              <Box
+                sx={{
+                  border: '2px dashed',
+                  borderColor: uploadForm.file ? 'primary.main' : 'divider',
+                  borderRadius: 3,
+                  p: 4,
+                  textAlign: 'center',
+                  bgcolor: (theme) => theme.palette.mode === 'dark' ? alpha(theme.palette.common.white, 0.02) : alpha(theme.palette.common.black, 0.01),
+                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                  cursor: 'pointer',
+                  '&:hover': {
+                    borderColor: 'primary.main',
+                    bgcolor: (theme) => alpha(theme.palette.primary.main, 0.04)
+                  }
+                }}
                 component="label"
-                startIcon={<CloudUploadOutlinedIcon />}
               >
-                {uploadForm.file ? uploadForm.file.name : 'Choose File'}
                 <input
                   type="file"
                   hidden
                   onChange={(e) => setUploadForm({...uploadForm, file: e.target.files[0]})}
                 />
-              </Button>
-              {uploading && <LinearProgress />}
+                <CloudUploadOutlinedIcon sx={{ fontSize: 48, color: uploadForm.file ? 'primary.main' : 'text.disabled', mb: 2 }} />
+                <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5 }}>
+                  {uploadForm.file ? 'File Selected' : 'Select File'}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {uploadForm.file ? uploadForm.file.name : 'Click to browse or drag and drop'}
+                </Typography>
+                {uploadForm.file && (
+                  <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'primary.main', fontWeight: 600 }}>
+                    {(uploadForm.file.size / 1024 / 1024).toFixed(2)} MB
+                  </Typography>
+                )}
+              </Box>
+
+              {uploading && (
+                <Box>
+                  <Stack direction="row" justifyContent="space-between" mb={1}>
+                    <Typography variant="caption" color="text.secondary">Processing file...</Typography>
+                    <Typography variant="caption" sx={{ fontWeight: 700 }}>Uploading</Typography>
+                  </Stack>
+                  <LinearProgress sx={{ borderRadius: 1, height: 8 }} />
+                </Box>
+              )}
             </Stack>
           </DialogContent>
-          <DialogActions sx={{ p: 2 }}>
-            <Button onClick={() => setUploadDialogOpen(false)} disabled={uploading}>Cancel</Button>
-            <Button type="submit" variant="contained" disabled={uploading}>Upload</Button>
+          <DialogActions sx={{ p: 4, pt: 0 }}>
+            <Button
+              onClick={() => setUploadDialogOpen(false)}
+              disabled={uploading}
+              sx={{ fontWeight: 700, color: 'text.secondary' }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="contained"
+              disabled={uploading || !uploadForm.file}
+              sx={{
+                px: 4,
+                py: 1.2,
+                borderRadius: 2,
+                fontWeight: 700,
+                boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
+              }}
+            >
+              Confirm Upload
+            </Button>
           </DialogActions>
         </form>
       </Dialog>
